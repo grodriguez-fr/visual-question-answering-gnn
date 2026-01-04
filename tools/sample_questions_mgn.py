@@ -150,12 +150,22 @@ def main(args):
     __all_img_indices: np.ndarray = input_questions['image_idxs'][()]
     logger.debug(f"__all_question_families len {len(__all_question_families)}")
 
-    # Sample N items for each 90 families #
+    # Sample items based on mode #
     fam2indices = get_question_fam_to_indices(args)
     M = len(fam2indices.keys())                 # 90
-    N = args.n_questions_per_family        # 50
-    max_sample = N * M                          # 90 * 50 = 4500
-    family_count = {}  # Utiliser un dictionnaire pour éviter les index out of bounds
+    
+    # 🔥 MODIFICATION: Si random_sample=1, prendre TOUTES les questions disponibles par famille
+    if args.random_sample:
+        # Mode: Prendre toutes les questions jusqu'à max_sample
+        max_sample = args.max_sample
+        logger.info(f"Mode RANDOM: Prenant jusqu'à {max_sample} questions (toutes les familles)")
+    else:
+        # Mode original: N questions par famille
+        N = args.n_questions_per_family
+        max_sample = N * M
+        logger.info(f"Mode FAMILLE: {N} questions par famille × {M} familles = {max_sample} max")
+    
+    family_count = np.zeros(M)
 
     # TODO: accumulating values here need to be parallelized, and joined write ex-post
     num_skipped = 0  # Counter for tracking num of samples skipped
@@ -163,15 +173,28 @@ def main(args):
     # 🚀 OPTIMISATION: Cache pour les scènes déjà parsées (évite de reparser les mêmes scènes)
     scene_cache = {}  # {img_idx: (Gt, t_doc, X_t, ei_t, e_attr_t)}
     
-    # Barre de progression : N questions × M familles
-    total_questions = N * M
-    pbar = tqdm(total=total_questions, desc="Précalcul des graphes", unit="question")
+    # Barre de progression
+    from tqdm import tqdm
+    pbar = tqdm(total=max_sample, desc="Précalcul des graphes", unit="question")
 
     for enum_idx, fam_idx in enumerate(fam2indices.keys()):
         all_fam_samples = fam2indices[fam_idx]
-        # Prendre au maximum min(N, len(all_fam_samples)) pour éviter l'erreur
-        actual_N = min(N, len(all_fam_samples))
-        logger.debug(f"Question_family {fam_idx} has {len(all_fam_samples)} samples to choose {actual_N} samples")
+        
+        # 🔥 NOUVELLE LOGIQUE: Prendre TOUTES les questions de la famille (ou ce qui reste)
+        if args.random_sample:
+            # Prendre toutes les questions de cette famille (limité par max_sample restant)
+            remaining = max_sample - len(questions)
+            actual_N = min(len(all_fam_samples), remaining)
+            logger.debug(f"Question_family {fam_idx}: prend {actual_N} questions sur {len(all_fam_samples)} disponibles")
+        else:
+            # Mode original: N fixe par famille
+            N = args.n_questions_per_family
+            actual_N = min(N, len(all_fam_samples))
+            logger.debug(f"Question_family {fam_idx}: prend {actual_N} questions (N={N} par famille)")
+        
+        if actual_N == 0:
+            break  # Plus de questions à prendre
+        
         N_question_sample_indices = np.random.choice(all_fam_samples, actual_N, replace=False)
         assert len(N_question_sample_indices) == actual_N
         # TODO: parallelize this iteration loop
@@ -185,20 +208,14 @@ def main(args):
                 num_skipped += 1
                 continue
             
-            # 🚀 OPTIMISATION: Vérifier si la scène est déjà en cache
-            if img_idx in scene_cache:
-                Gt, t_doc, X_t, ei_t, e_attr_t = scene_cache[img_idx]
-            else:
-                try:
-                    Gt, t_doc = graph_parser.get_doc_from_img_scene(img_scene, is_directed_graph=is_directed_graph)
-                    X_t, ei_t, e_attr_t = embedder.embed_t(img_idx, args.input_parsed_img_scenes_json)
-                    # Mettre en cache pour les prochaines questions sur cette scène
-                    scene_cache[img_idx] = (Gt, t_doc, X_t, ei_t, e_attr_t)
-                except AssertionError as ae:
-                    logger.warning(f"AssertionError Encountered: {ae}")
-                    logger.warning(f"[{img_idx}] Excluding images with > 10 objects")
-                    num_skipped += 1
-                    continue
+            try:
+                Gt, t_doc = graph_parser.get_doc_from_img_scene(img_scene, is_directed_graph=is_directed_graph)
+                X_t, ei_t, e_attr_t = embedder.embed_t(img_idx, args.input_parsed_img_scenes_json)
+            except AssertionError as ae:
+                logger.warning(f"AssertionError Encountered: {ae}")
+                logger.warning(f"[{img_idx}] Excluding images with > 10 objects")
+                num_skipped += 1
+                continue
             
             if Gt is None and ("SKIP" in t_doc):
                 logger.warning(f"Got None img_doc at image_index: {img_idx}")
@@ -228,7 +245,7 @@ def main(args):
             data_s_list.append(data_s)
             data_t_list.append(data_t)
 
-            family_count[fam_idx] = family_count.get(fam_idx, 0) + 1
+            family_count[fam_idx] += 1
             questions.append(input_questions['questions'][i])
             programs.append(input_questions['programs'][i])
             answers.append(input_questions['answers'][i])
@@ -237,11 +254,10 @@ def main(args):
             img_idxs.append(img_idx)
 
             pbar.update(1)
-            pbar.set_postfix({"skipped": num_skipped, "total": sum(family_count.values())})
+            pbar.set_postfix({"skipped": num_skipped, "total": len(questions)})
+            logger.info(f"\nCount = {len(questions)}\n")
 
-            logger.info(f"\nCount = {sum(family_count.values())}\n")
-
-        if sum(family_count.values()) >= max_sample:
+        if len(questions) >= max_sample:
             break
     
     pbar.close()
