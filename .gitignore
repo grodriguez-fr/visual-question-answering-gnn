@@ -4,3 +4,4 @@ clevr_preprocessed*
 _scratch
 __pycache__
 *.pyc
+CLEVR_v1.0.zip
