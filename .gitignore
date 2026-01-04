@@ -1,7 +1,11 @@
 .venv
-data
-clevr_preprocessed*
-_scratch
-__pycache__
+data/
+clevr_preprocessed*/
+clevr_preprocessed/
+_scratch/
+__pycache__/
 *.pyc
+*.h5
+*.pt
 CLEVR_v1.0.zip
+*.ipynb_checkpoints
