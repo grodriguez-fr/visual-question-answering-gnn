@@ -1,0 +1,43 @@
+no cyan 000000 <START> ; the another or thing than anything that rubber same are that behind metal number <END> 
+yes purple 000000 <START> How the What behind both number objects that rubber same are that greater there <END> 
+metal cube 000000 <START> There in that many objects that behind other number <END> 
+no purple 000000 <START> The in What size front big  anything the another sphere tiny that large objects is <END> 
+yes cyan 000000 <START> How that other there that rubber same are that its front right there <END> 
+2 10 000000 <START> There more objects or object anything that rubber side are that other shape number <END> 
+2 10 000000 <START> Does made object anything does matte thing balls that size greater right cyan on size greater right object <END> 
+purple cylinder 000000 <START> There in that brown objects that its shape small <END> 
+cyan 8 000001 <START> Is or size shape there than in that rubber same are that things what shape number in visible brown <END> 
+yes purple 000001 <START> How the any either than green that rubber brown are that its shape color <END> 
+1 10 000001 <START> Does made metal object anything behind blocks cube on blocks object <END> 
+yes purple 000001 <START> How that brown objects that behind material number that rubber are that its matte color <END> 
+6 4 000001 <START> There more objects or thing anything that rubber many are that behind front cyan <END> 
+2 0 000001 <START> Does made its thing anything does cubes metal cylinder on what block <END> 
+no cyan 000001 <START> How the and things greater number than green that rubber same are that greater shape number <END> 
+no purple 000002 <START> Are that its matte small an that material big has that rubber brown <END> 
+no purple 000002 <START> ; the another its material block objects that rubber brown are that its matte as <END> 
+brown 6 000002 <START> Is things shape cyan green visible brown <END> 
+0 1 000002 <START> There more objects what object anything behind material cube on size matte object <END> 
+no purple 000003 <START> Are that size shape number an that material cyan has that rubber brown <END> 
+no cyan 000003 <START> ; the another things material sphere than has that rubber brown are that behind cyan <END> 
+0 1 000003 <START> There more objects cylinder anything front object on things both material object <END> 
+no purple 000003 <START> ; the another its blocks metal thing than has that rubber same are that size both material number <END> 
+1 1 000003 <START> Does made or object anything the objects that rubber brown are that material cyan <END> 
+no cyan 000003 <START> How that more objects both cylinder how fewer objects that both material cyan left spheres that more objects both right cylinder <END> 
+1 1 000003 <START> There more objects front material block anything the <END> 
+0 0 000003 <START> There more objects or size ball has that rubber many are that what as <END> 
+3 2 000003 <START> There more objects object anything does behind object than anything balls that behind front big on things both right ball <END> 
+no purple 000003 <START> ; the equal its other sphere than anything tiny that red objects that behind blocks there spheres things both matte cylinder than anything large objects that material 
+cylinder green 000004 <START> The in What behind front number than in that rubber same are that other right number  visible in is less objects <END> 
+no cyan 000004 <START> How the another or there than green that rubber brown are that size material small <END> 
+no cyan 000004 <START> ; another things greater matte thing to <END> 
+no cyan 000004 <START> How the What size greater there than green that rubber many are that its both as <END> 
+yes purple 000004 <START> How the any either than green that rubber many are that purple there <END> 
+red gray 000004 <START> There brown in that size as <END> 
+2 10 000005 <START> There more objects or thing anything the objects that rubber same are that things material number <END> 
+yes purple 000005 <START> Do that material number balls that front metal as has that rubber brown are that behind right small <END> 
+yes purple 000005 <START> ; the another things object than has that rubber brown are that behind right number <END> 
+0 0 000005 <START> Does made things material object anything tiny that large objects that size what there <END> 
+3 2 000005 <START> Does made or thing anything that rubber side are that what right as <END> 
+yes cyan 000005 <START> Are that its what as balls that size what material color an that behind number than in how fewer objects that behind front shape small has that 
+yellow no 000005 <START> There brown in that material as than in that rubber side are that front matte there <END> 
+1 1 000006 <START> Does made or object anything that rubber side are that greater right number <END> 
