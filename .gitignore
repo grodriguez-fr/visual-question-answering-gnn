@@ -1,11 +1,39 @@
-.venv
+# Virtual environment
+.venv/
+venv/
+
+# Data directories
 data/
 clevr_preprocessed*/
 clevr_preprocessed/
+
+# Training outputs
 _scratch/
+curr_valid_predictions.txt
+
+# Python cache
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+
+# Jupyter
+*.ipynb_checkpoints
+.ipynb_checkpoints/
+
+# Model files
 *.h5
 *.pt
+*.pth
+*.ckpt
+
+# Large files
 CLEVR_v1.0.zip
-*.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
