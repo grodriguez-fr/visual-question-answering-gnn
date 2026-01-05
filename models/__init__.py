@@ -1,6 +1,6 @@
 from .encoder import Encoder
 from .decoder import Decoder
-from .gnn import GIN, MLP
+from .gnn import GIN, MLP, GAT
 from .graph_matcher import GraphMatcher
 
 from .seq2seq import Seq2seq
@@ -60,7 +60,17 @@ def create_seq2seq_gnn_net(input_vocab_size, output_vocab_size, hidden_size,
 
     logging.info(f"Instantiating GNN type: {gnn}")
     in_channels = gembd_vec_dim+3 if is_padding_pos else gembd_vec_dim      # 99 | 96
-    psi_1 = GIN(in_channels=in_channels, out_channels=48, num_layers=2)
-    gnn = GraphMatcher(psi_1, gembd_vec_dim=gembd_vec_dim, aggregation='cat')
+    gnn_module = None
+    if gnn == 'gat':
+        # Assurez-vous que gembd_vec_dim est divisible par le nombre de heads (ex: 4)
+        gnn_module = GAT(in_channels=in_channels, 
+                        out_channels=gembd_vec_dim, 
+                        num_layers=3, 
+                        heads=4)
+    elif gnn == 'gin':
+        gnn_module = GIN(in_channels, gembd_vec_dim, num_layers=3)
+    else:
+        raise ValueError(f"Type de GNN inconnu : {gnn}")
+    gnn = GraphMatcher(gnn_module, gembd_vec_dim=gembd_vec_dim, aggregation='cat')
 
     return Seq2seqGNN(encoder, decoder, gnn)

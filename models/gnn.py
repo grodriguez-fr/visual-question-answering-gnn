@@ -20,7 +20,7 @@ from torch_scatter import scatter_add
 from torch_geometric.utils import remove_self_loops
 from torch_geometric.nn import GINConv
 
-__all__ = ['GIN', 'MLP']
+__all__ = ['GIN', 'MLP', 'GAT']
 
 class GIN(torch.nn.Module):
     def __init__(self, in_channels, out_channels, num_layers, batch_norm=False,
@@ -114,3 +114,43 @@ class MLP(torch.nn.Module):
         return '{}({}, {}, num_layers={}, batch_norm={}, dropout={})'.format(
             self.__class__.__name__, self.in_channels, self.out_channels,
             self.num_layers, self.batch_norm, self.dropout)
+
+class GAT(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, num_layers, heads=4, dropout=0.1):
+        super(GAT, self).__init__()
+
+        self.num_layers = num_layers
+        self.dropout = dropout
+        self.heads = heads
+        self.out_channels = out_channels
+        
+        self.hidden_per_head = out_channels // heads
+        
+        self.convs = torch.nn.ModuleList()
+        
+        self.convs.append(GATConv(in_channels, self.hidden_per_head, heads=heads, dropout=dropout))
+        
+        for _ in range(num_layers - 1):
+            self.convs.append(GATConv(out_channels, self.hidden_per_head, heads=heads, dropout=dropout))
+
+    def forward(self, x, edge_index, edge_attr=None, batch=None, return_attention=False):
+        attention_weights_list = []
+        
+        for i, conv in enumerate(self.convs):
+            x = F.dropout(x, p=self.dropout, training=self.training)
+            
+            if return_attention:
+                x, (edge_index_attn, alpha) = conv(x, edge_index, return_attention_weights=True)
+                attention_weights_list.append((edge_index_attn, alpha))
+            else:
+                x = conv(x, edge_index)
+            
+            if i < self.num_layers - 1:
+                x = F.elu(x)
+        
+        if batch is not None:
+            x = global_mean_pool(x, batch)
+            
+        if return_attention:
+            return x, attention_weights_list
+        return x
