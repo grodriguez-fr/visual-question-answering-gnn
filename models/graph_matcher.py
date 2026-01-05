@@ -53,11 +53,14 @@ class GraphMatcher(torch.nn.Module):
             takes in node features :obj:`x`, edge connectivity
             :obj:`edge_index`, and optional edge features :obj:`edge_attr` and
             computes node embeddings.
-        psi_2 (torch.nn.Module): The second GNN :math:`\Psi_{\theta_2}`optional decoder
+        psi_2 (torch.nn.Module): The second GNN :math:`\Psi_{\theta_2}`optional decoder.
+            In two_stream mode, this becomes the dedicated scene GNN.
         aggregation: str: ('mean' | 'cat') Embedding representation for coalescing Gs, Gt embeddings
+        two_stream (bool): If True, uses separate GNNs (psi_1 for questions, psi_2 for scenes)
+                          If False, uses psi_1 for both (original behavior)
     """
     def __init__(self, psi_1, psi_2=None, gembd_vec_dim=96,
-                 aggregation='mean', detach=False):
+                 aggregation='mean', detach=False, two_stream=False):
         super(GraphMatcher, self).__init__()
 
         self.psi_1 = psi_1
@@ -65,6 +68,12 @@ class GraphMatcher(torch.nn.Module):
         self.gembd_vec_dim = gembd_vec_dim
         self.aggregation = aggregation
         self.detach = detach
+        self.two_stream = two_stream
+        
+        # Two-stream mode requires psi_2
+        if two_stream and psi_2 is None:
+            raise ValueError("two_stream=True requires psi_2 (dedicated scene GNN)")
+        
         mlp_in_sz = psi_1.out_channels * 2      # default
         if self.aggregation == 'mean':
             mlp_in_sz = psi_1.out_channels
@@ -113,8 +122,15 @@ class GraphMatcher(torch.nn.Module):
 
         Returns: A joint embedding vector for Gs, Gt of shape `[bsz * gembd_vec_dim]`
         """
-        h_s = self.psi_1(x_s, edge_index_s, edge_attr_s)
-        h_t = self.psi_1(x_t, edge_index_t, edge_attr_t)
+        # 🔥 TWO-STREAM MODE: Use separate GNNs
+        if self.two_stream:
+            h_s = self.psi_1(x_s, edge_index_s, edge_attr_s)  # Question GNN
+            h_t = self.psi_2(x_t, edge_index_t, edge_attr_t)  # Scene GNN
+        else:
+            # Original single-stream mode: shared GNN
+            h_s = self.psi_1(x_s, edge_index_s, edge_attr_s)
+            h_t = self.psi_1(x_t, edge_index_t, edge_attr_t)
+        
         h_s, h_t = (h_s.detach(), h_t.detach()) if self.detach else (h_s, h_t)
         h_s, s_mask = to_dense_batch(h_s, batch_s, fill_value=0)
         h_t, t_mask = to_dense_batch(h_t, batch_t, fill_value=0)    # [64, 50, 48] or [bsz, Vt, dim]
@@ -146,9 +162,12 @@ class GraphMatcher(torch.nn.Module):
                 _reset(nn)
 
     def __repr__(self):
+        mode = 'two-stream' if self.two_stream else 'single-stream'
         return ('{}(\n'
+                '    mode={},\n'
                 '    psi_1={},\n'
                 '    psi_2={},\n'
                 '    gembd_vec_dim={}\n').format(self.__class__.__name__,
+                                                    mode,
                                                     self.psi_1, self.psi_2,
                                                     self.gembd_vec_dim)

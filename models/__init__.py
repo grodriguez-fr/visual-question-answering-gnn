@@ -59,18 +59,24 @@ def create_seq2seq_gnn_net(input_vocab_size, output_vocab_size, hidden_size,
                       bidirectional=bidirectional, use_attention=use_attention)
 
     logging.info(f"Instantiating GNN type: {gnn}")
-    in_channels = gembd_vec_dim+3 if is_padding_pos else gembd_vec_dim      # 99 | 96
-    gnn_module = None
+    in_channels = gembd_vec_dim+3 if is_padding_pos else gembd_vec_dim      # 99 | 96    
+    
     if gnn == 'gat':
-        # Assurez-vous que gembd_vec_dim est divisible par le nombre de heads (ex: 4)
-        gnn_module = GAT(in_channels=in_channels, 
-                        out_channels=gembd_vec_dim, 
-                        num_layers=3, 
-                        heads=4)
+        psi_1 = GAT(in_channels=in_channels, out_channels=gembd_vec_dim, num_layers=3, heads=4)
     elif gnn == 'gin':
-        gnn_module = GIN(in_channels, gembd_vec_dim, num_layers=3)
+        psi_1 = GIN(in_channels, gembd_vec_dim, num_layers=3)
     else:
         raise ValueError(f"Type de GNN inconnu : {gnn}")
-    gnn = GraphMatcher(gnn_module, gembd_vec_dim=gembd_vec_dim, aggregation='cat')
+    
+    # In two-stream mode, create a second independent GNN for scenes
+    psi_2 = None
+    if kwargs.get('two_stream_gnn', 0):
+        if gnn == 'gat':
+            psi_2 = GAT(in_channels=in_channels, out_channels=gembd_vec_dim, num_layers=3, heads=4)
+        elif gnn == 'gin':
+            psi_2 = GIN(in_channels, gembd_vec_dim, num_layers=3)    
+    # Create GraphMatcher with two_stream parameter
+    gnn_matcher = GraphMatcher(psi_1, psi_2=psi_2, gembd_vec_dim=gembd_vec_dim, 
+                               aggregation='cat', two_stream=kwargs.get('two_stream_gnn', 0))
 
-    return Seq2seqGNN(encoder, decoder, gnn)
+    return Seq2seqGNN(encoder, decoder, gnn_matcher)

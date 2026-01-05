@@ -93,11 +93,16 @@ class BaseOptions():
         train_qp = train_qp.split('/')[-1].split('.')[0]
 
         if self.is_train_options:
-            identifier = f"{tag}reason.run_train-pretrain-{train_qp}-{args.num_iters}num_iters.{args.max_train_samples}tr_samples" \
+            # Info sur le modèle GNN
+            gnn_type = args.gnn.upper() if hasattr(args, 'gnn') else 'GIN'
+            stream_mode = 'twostream' if (hasattr(args, 'two_stream_gnn') and args.two_stream_gnn) else 'singlestream'
+            model_info = f"{gnn_type}-{stream_mode}"
+            
+            identifier = f"{tag}reason.run_train-pretrain-{model_info}-{train_qp}-{args.num_iters}num_iters.{args.max_train_samples}tr_samples" \
                          f".{args.max_val_samples}val_samples.{args.batch_size}bsz-{platform.node()}-{ts}"
 
             if args.reinforce:
-                identifier = f"{tag}reason.run_train-reinforce-{args.dataset}-{args.num_iters}num_iters.{args.max_train_samples}tr_samples" \
+                identifier = f"{tag}reason.run_train-reinforce-{model_info}-{args.dataset}-{args.num_iters}num_iters.{args.max_train_samples}tr_samples" \
                              f".{args.max_val_samples}val_samples.{args.batch_size}bsz.{args.learning_rate}lr-{ts}"
 
         elif self.is_test_options:

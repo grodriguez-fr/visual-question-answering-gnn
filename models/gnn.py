@@ -18,7 +18,7 @@ import torch.nn.functional as F
 
 from torch_scatter import scatter_add
 from torch_geometric.utils import remove_self_loops
-from torch_geometric.nn import GINConv
+from torch_geometric.nn import GINConv, GATConv, global_mean_pool
 
 __all__ = ['GIN', 'MLP', 'GAT']
 

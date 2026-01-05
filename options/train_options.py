@@ -44,4 +44,5 @@ class TrainOptions(BaseOptions):
         self.parser.add_argument('--gnn', default='gin', type=str, help='gnn aggregation layer type, options: gcn, gat, rgcn')
         self.parser.add_argument('--gembd_vec_dim', default=96, type=int, help='dimension of graph embedding vector')
         self.parser.add_argument('--is_padding_pos', default=1, type=int, help='gembd vec padded with pos(x,y,z)')
+        self.parser.add_argument('--two_stream_gnn', default=0, type=int, help='use two separate GNNs for question and scene (0=single stream, 1=two streams)')
         self.is_train = True
