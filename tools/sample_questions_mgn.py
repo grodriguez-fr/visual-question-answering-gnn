@@ -165,7 +165,7 @@ def main(args):
         max_sample = N * M
         logger.info(f"Mode FAMILLE: {N} questions par famille × {M} familles = {max_sample} max")
     
-    family_count = np.zeros(M)
+    family_count = np.zeros(90) # Fixed size for CLEVR families
 
     # TODO: accumulating values here need to be parallelized, and joined write ex-post
     num_skipped = 0  # Counter for tracking num of samples skipped
@@ -263,11 +263,14 @@ def main(args):
     pbar.close()
     
     print(f"\n📊 Statistiques du précalcul:")
-    print(f"   - Questions générées: {sum(family_count.values())}")
+    print(f"   - Questions générées: {int(family_count.sum())}")
     print(f"   - Questions skipped: {num_skipped}")
-    print(f"   - Scènes uniques parsées: {len(scene_cache)} (au lieu de {sum(family_count.values()) + num_skipped})")
-    total_processed = sum(family_count.values()) + num_skipped
-    print(f"   - Gain de performance: {((total_processed - len(scene_cache)) / total_processed * 100):.1f}% de scènes évitées")
+    print(f"   - Scènes uniques parsées: {len(scene_cache)} (au lieu de {int(family_count.sum()) + num_skipped})")
+    total_processed = int(family_count.sum()) + num_skipped
+    if total_processed > 0:
+        print(f"   - Gain de performance: {((total_processed - len(scene_cache)) / total_processed * 100):.1f}% de scènes évitées")
+    else:
+        print(f"   - Gain de performance: 0% (aucun traitement)")
 
     logger.debug(f"Total samples skipped (due to errors/exceptions) = {num_skipped}")
     # ---------------------------------------------------------------------------#
