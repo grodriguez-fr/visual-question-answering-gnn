@@ -30,18 +30,51 @@
 \subsection{La Tâche : Visual Question Answering (VQA)}
 Le projet étudié porte sur le Visual Question Answering (VQA) appliqué au dataset CLEVR. L'objectif est de concevoir un système capable de répondre à des questions complexes nécessitant un raisonnement logique et spatial sur des images synthétiques contenant des formes géométriques simples. Contrairement aux approches classiques basées sur des CNNs pour l'image et des RNNs pour le texte, l'approche étudiée ici modélise les données sous forme de graphes pour capturer explicitement les relations entre les objets et les concepts linguistiques.
 
-\subsection{L'Approche MGN (Multimodal Graph Networks)}
-La méthode présentée dans le tutoriel, inspirée du papier \textit{Multimodal Graph Networks for Compositional Generalization in VQA}, repose sur la construction de deux graphes distincts :
-\begin{itemize}
-    \item \textbf{Graphe de Scène ($G_{im}$)} : Les nœuds représentent les objets détectés et les arêtes leurs relations spatiales (gauche, droite, devant, etc.).
-    \item \textbf{Graphe de Question ($G_{q}$)} : Les nœuds sont les mots et les arêtes les dépendances syntaxiques.
-\end{itemize}
-Ces graphes sont traités par des Graph Neural Networks (GNN) pour produire des embeddings, qui sont ensuite fusionnés pour générer un programme exécutable (une suite d'opérations logiques) répondant à la question.
+\subsection{Analyse du Workflow de Données MGN}
+L'architecture MGN repose sur un pipeline de traitement séquentiel qui transforme les données brutes en un programme exécutable. Voici le détail étape par étape du flux de données :
 
-\subsection{Critique et Baseline Modernisée}
-L'analyse approfondie du code fourni a révélé des divergences notables avec le papier de recherche original. Premièrement, l'extraction visuelle par Mask R-CNN mentionnée dans le papier est absente du code, remplacée par l'utilisation directe des annotations de vérité terrain (fichiers JSON), simplifiant considérablement la tâche de perception. Deuxièmement, la tâche implémentée se limite à la génération de programmes symboliques (Task 2), délaissant la classification directe de réponses (Task 1).
+\begin{enumerate}
+    \item \textbf{Entrées (Question et Scène) :} 
+    Le système prend en entrée une question en langage naturel. Pour la partie visuelle, contrairement à ce que suggère une approche multimodale classique, le modèle ingère une \textbf{description de scène structurée au format JSON} (Vérité Terrain) et non une image brute. Cela permet de contourner l'étape d'extraction visuelle (CNN).
 
-\textbf{Mise à niveau technique :} Avant d'entreprendre nos modifications, nous avons dû moderniser le code, initialement conçu pour des versions obsolètes de PyTorch. Nous avons porté l'ensemble du projet sur un environnement \textbf{PyTorch 2.9.1 avec CUDA 12.6}. Cette version modernisée constitue notre \textbf{Baseline} pour les expériences suivantes, garantissant la reproductibilité des résultats sur du matériel actuel.
+    \item \textbf{Graph Parser (Construction des Graphes) :} 
+    Un module de parsing convertit ces entrées structurées en deux graphes distincts :
+    \begin{itemize}
+        \item Le \textit{Graphe de Question} est construit via des règles syntaxiques (ex: spaCy), où les nœuds sont les mots et les arêtes représentent les dépendances grammaticales.
+        \item Le \textit{Graphe de Scène} encode les objets du JSON. Point crucial : plutôt que d'encoder explicitement les relations spatiales (ex: "à gauche de") sous forme d'arêtes, le modèle intègre directement les \textbf{coordonnées 3D brutes $(x, y, z)$} dans les attributs de chaque nœud objet. C'est au réseau d'apprendre implicitement la géométrie de la scène.
+    \end{itemize}
+
+    \item \textbf{Graph Matcher (Appariement) :} 
+    Les deux graphes sont transformés en embeddings. Un module d'appariement (souvent un GNN partagé ou un MLP) calcule ensuite une matrice de correspondance (attention soft) entre les nœuds textuels et les nœuds objets, cherchant à aligner les mots avec les objets correspondants.
+
+    \item \textbf{Générateur de Programme (Seq2Seq) :} 
+    Un décodeur RNN (Seq2Seq) utilise ces représentations pour générer séquentiellement un \textbf{programme symbolique} (une suite de tokens logiques comme \texttt{filter\_shape[cube], query\_color}). C'est sur cette séquence que s'effectue l'entraînement supervisé (calcul de la Loss entre le programme généré et le programme attendu).
+
+    \item \textbf{Exécuteur Symbolique :} 
+    La réponse finale n'est pas produite par le réseau de neurones. Un exécuteur algorithmique déterministe prend le programme généré par le modèle et l'applique sur le JSON de la scène pour "calculer" la réponse. Le raisonnement logique pur est donc délégué à ce moteur de règles externes.
+\end{enumerate}
+
+\subsection{Critique Approfondie et Limitations}
+L'analyse croisée du papier, du code et des reviews révèle plusieurs faiblesses méthodologiques majeures qui nuancent les performances annoncées.
+
+\subsubsection{Dépendance aux Annotations et Comparaison Biaisée}
+Une divergence critique apparaît entre la promesse du papier ("Multimodal") et le code réel : l'extraction visuelle par Mask R-CNN est simulée par l'injection directe des annotations de vérité terrain (fichiers JSON). Le modèle ne "voit" jamais l'image, il lit une description parfaite de la scène.
+Cela rend la comparaison avec d'autres méthodes (MAC, FiLM, Relation Networks) particulièrement injuste, car ces dernières travaillent sur les pixels bruts et doivent gérer le bruit visuel. Comme l'a noté avec justesse le Reviewer 3 : \textit{"This becomes a trivial problem of semantic matching of labels and does not necessitate the complex graph fusion that is proposed"}. En effet, sans la difficulté de la perception visuelle, le problème se réduit largement à un appariement sémantique entre les mots de la question et les labels du JSON.
+
+\subsubsection{Manque de Généralisation et Diversité des Données}
+L'évaluation repose exclusivement sur le dataset synthétique CLEVR (et ses dérivés comme CLOSURE). L'absence de validation sur des datasets d'images naturelles limite la portée des conclusions. 
+Cependant, cette limitation est compréhensible au vu de l'architectue du système : le modèle dépend entièrement d'un \textbf{exécuteur symbolique} et de \textbf{parsers de graphes} spécifiquement codés pour la structure de données de CLEVR. Adapter ce modèle à un autre dataset (ex: VQA v2 ou GQA) ne consisterait pas seulement à réentraîner les poids, mais exigerait de réécrire entièrement le moteur logique et les règles d'extraction syntaxique, ce qui illustre la rigidité de l'approche neuro-symbolique proposée.
+
+En supprimant cet exécuteur dans notre 3ème modification (Classification End-to-End), nous forçons non seulement le modèle à effectuer le raisonnement complet, mais nous nous affranchissons surtout de la dépendance à ce moteur logique rigide. Cette modification est un pas essentiel pour permettre le benchmarking futur du modèle sur d'autres datasets sans nécessiter le développement d'exécuteurs ad-hoc.
+
+\subsubsection{Incohérences Architecturales et Ambiguïtés Spatiales}
+Une analyse fine de l'architecture révèle deux problèmes structurels que nous avons cherché à corriger.
+
+D'une part, le modèle original utilise un \textbf{"Shared GNN"} monolithique pour traiter simultanément le graphe de question et le graphe de scène. Or, ces deux modalités sont fondamentalement hétérogènes : le premier encode une structure syntaxique abstraite, tandis que le second encode des propriétés physiques et des positions métriques 3D. Traiter ces informations disparates avec les mêmes poids est sous-optimal. C'est ce constat qui motive notre proposition d'une architecture disjointe (\textbf{Two-Stream}), permettant de spécialiser le traitement de chaque flux avant leur fusion.
+
+
+\subsection{Mise à jour du code}
+ Avant d'entreprendre nos modifications, nous avons dû moderniser le code, initialement conçu pour des versions obsolètes de PyTorch. Nous avons porté l'ensemble du projet sur un environnement \textbf{PyTorch 2.9.1 avec CUDA 12.6}. Cette version modernisée constitue notre \textbf{Baseline} pour les expériences suivantes, garantissant la reproductibilité des résultats sur du matériel actuel.
 
 \section{Modifications Architecturales et Fonctionnelles}
 
@@ -84,7 +117,50 @@ L'analyse des poids d'attention du GAT offre des insights intéressants sur le r
     \item \resultat{Les visualisations confirment que le mécanisme d'attention permet de filtrer les objets non pertinents de la scène, agissant comme un mécanisme de focalisation similaire à l'attention visuelle humaine.}
 \end{itemize}
 
+\subsubsection{Apprentissage Implicite des Relations Spatiales}
+Un résultat notable de notre analyse est que le GNN parvient à apprendre les relations spatiales \textbf{sans encodage symbolique explicite}. En visualisant les poids d'attention sur des questions spatiales (ex: "Y a-t-il un objet à gauche du cube ?"), nous observons que :
+\begin{itemize}
+    \item Le réseau concentre son attention sur les objets ayant des coordonnées $x$ pertinentes
+    \item Les couches de GAT apprennent à propager l'information spatiale de manière contextuelle
+    \item Les positions 3D brutes (96D + 3D) permettent au modèle de généraliser au-delà des relations pré-calculées
+\end{itemize}
+
+\textbf{Avantage :} Cette approche offre plus de flexibilité que des arêtes symboliques fixes ("left", "right"). Le GNN peut apprendre des notions spatiales contextuelles (ex: "proche" peut dépendre de la disposition globale de la scène).
+
+\textbf{Défi :} Le modèle doit apprendre à interpréter les coordonnées 3D, ce qui requiert plus de données d'entraînement qu'avec des relations symboliques pré-calculées.
+
 \section{Conclusion}
-Ce projet nous a permis de comprendre les défis de la reproduction de papiers de recherche et l'importance de l'architecture logicielle dans les systèmes de Deep Learning. En modernisant le code et en introduisant des mécanismes d'attention et une classification end-to-end, nous avons transformé une simple démonstration de génération de programmes en un véritable système de VQA explicable. Les résultats soulignent l'efficacité des GNNs pour structurer le raisonnement multimodal, tout en mettant en évidence l'importance de l'explicabilité dans ces modèles complexes.
+Ce projet nous a permis de comprendre les défis de la reproduction de papiers de recherche et l'importance de l'architecture logicielle dans les systèmes de Deep Learning. En modernisant le code et en introduisant des mécanismes d'attention et une classification end-to-end, nous avons transformé une simple démonstration de génération de programmes en un véritable système de VQA explicable. 
+
+\textbf{Contribution clé :} Notre analyse approfondie du système d'encodage spatial a révélé que le modèle MGN adopte une approche \textit{implicite} du raisonnement spatial : plutôt que d'encoder les relations (gauche/droite) comme des arêtes symboliques, il fournit directement les coordonnées 3D brutes $(x, y, z)$ dans les features des nœuds et laisse le GNN apprendre à les interpréter. Cette approche offre une plus grande flexibilité mais nécessite que le réseau apprenne à effectuer des comparaisons géométriques de manière contextuelle.
+
+Les résultats soulignent l'efficacité des GNNs pour structurer le raisonnement multimodal, tout en mettant en évidence l'importance de l'explicabilité dans ces modèles complexes. Les mécanismes d'attention du GAT permettent de vérifier que le modèle se concentre bien sur les objets pertinents, offrant ainsi une première étape vers des systèmes de VQA plus transparents et fiables.
+
+\begin{thebibliography}{9}
+
+\bibitem{neurips2020}
+Raeid Saqur et Karthik Narasimhan.
+\textit{Multimodal Graph Networks for Compositional Generalization in Visual Question Answering}.
+NeurIPS 2020.
+\url{https://proceedings.neurips.cc/paper/2020/file/1fd6c4e41e2c6a6b092eb13ee72bce95-Paper.pdf}
+
+\bibitem{medium2021}
+Raeid Saqur.
+\textit{Graphs are All You Need: Generating Multimodal Representations for VQA}.
+Medium, 2021.
+\url{https://medium.com/stanford-cs224w/graphs-are-all-you-need-generating-multimodal-representations-for-vqa-744a8a1ad448}
+
+\bibitem{neuripsreviews}
+NeurIPS 2020 Reviewers.
+\textit{Reviews for Multimodal Graph Networks}.
+\url{https://proceedings.neurips.cc/paper_files/paper/2020/file/1fd6c4e41e2c6a6b092eb13ee72bce95-Review.html}
+
+\bibitem{mgncode}
+Raeid Saqur.
+\textit{Code officiel pour MGN}.
+GitHub Repository.
+\url{https://github.com/raeidsaqur/mgn}
+
+\end{thebibliography}
 
 \end{document}
