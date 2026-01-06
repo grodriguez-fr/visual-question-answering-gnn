@@ -45,4 +45,15 @@ class TrainOptions(BaseOptions):
         self.parser.add_argument('--gembd_vec_dim', default=96, type=int, help='dimension of graph embedding vector')
         self.parser.add_argument('--is_padding_pos', default=1, type=int, help='gembd vec padded with pos(x,y,z)')
         self.parser.add_argument('--two_stream_gnn', default=0, type=int, help='use two separate GNNs for question and scene (0=single stream, 1=two streams)')
+        
+        # 🎯 Classification mode: direct answer prediction (end-to-end VQA)
+        # 0 = seq2seq mode (generate program, use executor) - ORIGINAL
+        # 1 = classification mode (predict answer directly via MLP) - NEW
+        self.parser.add_argument('--classification_mode', default=0, type=int, 
+            help='0=seq2seq (program generation + executor), 1=classification (direct answer prediction)')
+        self.parser.add_argument('--classifier_hidden_dim', default=256, type=int,
+            help='hidden dimension for classification MLP head')
+        self.parser.add_argument('--classifier_dropout', default=0.1, type=float,
+            help='dropout probability for classification head')
+        
         self.is_train = True
