@@ -87,8 +87,11 @@ class Trainer():
                 from utils.logger import Logger
                 import time
                 timestamp = time.strftime('%Y%m%d-%H%M%S')
-                # Inclure le nom de la tête dans le dossier de logs (executor pour seq2seq)
-                log_dir = f'{opt.run_dir}/logs_executor_{timestamp}'
+                # Construire un nom descriptif avec toutes les infos importantes
+                gnn_type = opt.gnn.upper()  # GAT ou GIN
+                stream_mode = "two-stream" if opt.two_stream_gnn else "single-stream"
+                log_name = f'logs_seq2seq_{gnn_type}_{stream_mode}_{timestamp}'
+                log_dir = f'{opt.run_dir}/{log_name}'
                 self.logger = Logger(log_dir)
                 print(f"📊 TensorBoard logs: {log_dir}")
 
@@ -163,7 +166,13 @@ class Trainer():
                     else:
                         self.stats['train_losses'].append(loss)
                         self.log_stats('training batch loss', loss, t)
-                        pbar.set_postfix({'loss': f'{loss:.4f}'})
+                        
+                        # Calculer training batch accuracy
+                        train_batch_acc = self.get_batch_reward(self.model.parse(), ans, idx, 'train', x)
+                        self.stats['train_batch_accs'].append(train_batch_acc)
+                        self.log_stats('training batch accuracy', train_batch_acc, t)
+                        
+                        pbar.set_postfix({'loss': f'{loss:.4f}', 'acc': f'{train_batch_acc:.4f}'})
                     self.stats['train_accs_ts'].append(t)
 
                 if t % self.checkpoint_every == 0 or t >= self.num_iters:
@@ -183,11 +192,12 @@ class Trainer():
                         self.model.save_checkpoint('%s/checkpoint_iter%08d.pt' % (self.run_dir, t))
                         if self.visualize_training_wandb:
                             wandb.save(checkpoint_fp)
+                    
+                    # Toujours calculer et logger le validation loss en mode supervisé
                     if not self.reinforce:
                         val_loss = self.check_val_loss()
                         pbar.write('| validation loss %f' % val_loss)
                         self.stats['val_losses'].append(val_loss)
-                        # Log validation loss to TensorBoard
                         self.log_stats('validation loss', val_loss, t)
                     self.stats['val_accs'].append(val_acc)
                     self.stats['val_accs_ts'].append(t)

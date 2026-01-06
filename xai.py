@@ -782,11 +782,22 @@ def visualize_programs_and_predictions(model, val_loader, val_dataset, opt, num_
 
                 program_text = " ".join(program_words) if program_words else "[PROGRAMME VIDE]"
                 answer_predicted = "N/A"
-                if executor and scene:
+                if executor and program_words:
                     try:
-                        answer_predicted = executor.run(program_words, scene, 'program')
+                        # L'executor attend un numpy array d'indices de tokens
+                        # Il recherche <END> pour déterminer la longueur du programme
+                        answer_predicted = executor.run(program_tokens, image_index, 'val')
+                        if answer_predicted == 'error':
+                            # L'executor retourne 'error' si le programme est invalide
+                            answer_predicted = "❌ Erreur d'exécution"
                     except Exception as e:
-                        answer_predicted = f"Erreur exec: {str(e)[:60]}"
+                        # Erreur système pendant l'exécution
+                        import traceback
+                        error_details = traceback.format_exc()
+                        print(f"⚠️ Détails de l'erreur d'exécution:\n{error_details}")
+                        answer_predicted = f"❌ Exception: {str(e)[:80]}"
+                elif not program_words:
+                    answer_predicted = "[PROGRAMME VIDE]"
 
                 status = "✅" if str(answer_predicted).lower() == true_answer.lower() else "❌"
                 print(f"🤖 Programme généré: {program_text}")

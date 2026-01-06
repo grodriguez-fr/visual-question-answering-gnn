@@ -54,23 +54,17 @@ L'architecture MGN repose sur un pipeline de traitement séquentiel qui transfor
     La réponse finale n'est pas produite par le réseau de neurones. Un exécuteur algorithmique déterministe prend le programme généré par le modèle et l'applique sur le JSON de la scène pour "calculer" la réponse. Le raisonnement logique pur est donc délégué à ce moteur de règles externes.
 \end{enumerate}
 
-\subsection{Critique Approfondie et Limitations}
-L'analyse croisée du papier, du code et des reviews révèle plusieurs faiblesses méthodologiques majeures qui nuancent les performances annoncées.
+\subsection{Observations et Limitations}
+L'analyse du papier, du code et des reviews soulève plusieurs questions méthodologiques.
 
-\subsubsection{Dépendance aux Annotations et Comparaison Biaisée}
-Une divergence critique apparaît entre la promesse du papier ("Multimodal") et le code réel : l'extraction visuelle par Mask R-CNN est simulée par l'injection directe des annotations de vérité terrain (fichiers JSON). Le modèle ne "voit" jamais l'image, il lit une description parfaite de la scène.
-Cela rend la comparaison avec d'autres méthodes (MAC, FiLM, Relation Networks) particulièrement injuste, car ces dernières travaillent sur les pixels bruts et doivent gérer le bruit visuel. Comme l'a noté avec justesse le Reviewer 3 : \textit{"This becomes a trivial problem of semantic matching of labels and does not necessitate the complex graph fusion that is proposed"}. En effet, sans la difficulté de la perception visuelle, le problème se réduit largement à un appariement sémantique entre les mots de la question et les labels du JSON.
+\subsubsection{Utilisation des Annotations de Vérité Terrain}
+Le code utilise directement les annotations JSON de vérité terrain plutôt que d'extraire les features visuelles des images via Mask R-CNN. Le modèle ne traite jamais les pixels bruts, mais lit une description structurée parfaite de la scène. Cette approche diffère des méthodes comparées (MAC, FiLM, Relation Networks) qui travaillent sur les images brutes avec leur bruit visuel inhérent. Le Reviewer 3 a noté : \textit{"This becomes a trivial problem of semantic matching of labels and does not necessitate the complex graph fusion that is proposed"}. Sans la difficulté de la perception visuelle, la tâche se rapproche d'un appariement sémantique entre tokens de question et labels JSON.
 
-\subsubsection{Manque de Généralisation et Diversité des Données}
-L'évaluation repose exclusivement sur le dataset synthétique CLEVR (et ses dérivés comme CLOSURE). L'absence de validation sur des datasets d'images naturelles limite la portée des conclusions. 
-Cependant, cette limitation est compréhensible au vu de l'architectue du système : le modèle dépend entièrement d'un \textbf{exécuteur symbolique} et de \textbf{parsers de graphes} spécifiquement codés pour la structure de données de CLEVR. Adapter ce modèle à un autre dataset (ex: VQA v2 ou GQA) ne consisterait pas seulement à réentraîner les poids, mais exigerait de réécrire entièrement le moteur logique et les règles d'extraction syntaxique, ce qui illustre la rigidité de l'approche neuro-symbolique proposée.
+\subsubsection{Spécificité au Dataset CLEVR}
+L'évaluation porte exclusivement sur CLEVR et ses variantes (CLOSURE). Le système repose sur un exécuteur symbolique et des parsers de graphes spécifiquement conçus pour la structure CLEVR. L'adaptation à d'autres datasets (VQA v2, GQA) nécessiterait de réécrire l'exécuteur et les règles de parsing, pas seulement de réentraîner les poids. Notre modification "Classification End-to-End" vise à tester le modèle sans l'exécuteur symbolique, permettant d'évaluer les capacités réelles du GNN.
 
-En supprimant cet exécuteur dans notre 3ème modification (Classification End-to-End), nous forçons non seulement le modèle à effectuer le raisonnement complet, mais nous nous affranchissons surtout de la dépendance à ce moteur logique rigide. Cette modification est un pas essentiel pour permettre le benchmarking futur du modèle sur d'autres datasets sans nécessiter le développement d'exécuteurs ad-hoc.
-
-\subsubsection{Incohérences Architecturales et Ambiguïtés Spatiales}
-Une analyse fine de l'architecture révèle deux problèmes structurels que nous avons cherché à corriger.
-
-D'une part, le modèle original utilise un \textbf{"Shared GNN"} monolithique pour traiter simultanément le graphe de question et le graphe de scène. Or, ces deux modalités sont fondamentalement hétérogènes : le premier encode une structure syntaxique abstraite, tandis que le second encode des propriétés physiques et des positions métriques 3D. Traiter ces informations disparates avec les mêmes poids est sous-optimal. C'est ce constat qui motive notre proposition d'une architecture disjointe (\textbf{Two-Stream}), permettant de spécialiser le traitement de chaque flux avant leur fusion.
+\subsubsection{Architecture GNN Partagée}
+Le modèle original utilise un GNN partagé pour traiter les deux graphes (question et scène). Ces modalités sont hétérogènes : syntaxe linguistique abstraite d'un côté, propriétés physiques et coordonnées 3D de l'autre. Il nous semble que traiter ces deux types de graphes avec les mêmes poids pourrait ne pas être optimal, mais nous ne sommes pas certains de l'impact réel de cette approche. Notre architecture Two-Stream propose de séparer ces traitements pour tester cette hypothèse et observer si la spécialisation de chaque flux apporte un bénéfice avant fusion.
 
 
 \subsection{Mise à jour du code}
@@ -81,14 +75,14 @@ D'une part, le modèle original utilise un \textbf{"Shared GNN"} monolithique po
 Pour dépasser les limitations identifiées et explorer le potentiel des GNNs, nous avons implémenté trois modifications structurelles majeures par rapport à la baseline.
 
 \subsection{Axe 1 : Architecture Disjointe (Two-Stream)}
-\textbf{Problème :} L'implémentation naïve tend à fusionner trop tôt les informations visuelles et linguistiques, ou à créer un "super-graphe" connectant tous les mots à tous les objets. Cela introduit du bruit et empêche le modèle de structurer sa compréhension de chaque modalité indépendamment.
+\textbf{Observation :} Le modèle original utilise un GNN partagé pour traiter simultanément les deux graphes hétérogènes (question linguistique et scène spatiale). Nous nous sommes demandé si une fusion précoce pourrait introduire du bruit et si traiter chaque modalité indépendamment avant fusion pourrait être bénéfique.
 
-\textbf{Modification :} Nous avons restructuré l'architecture pour adopter une approche "Two-Stream". Les encodeurs de graphe de scène et de graphe de question sont désormais strictement séparés dans les premières couches. Chaque branche raffine ses propres représentations (visuelles ou sémantiques) avant une fusion tardive. Cela permet de préserver la spécificité de chaque modalité avant le raisonnement conjoint.
+\textbf{Modification :} Nous avons testé une architecture "Two-Stream" où les encodeurs de graphe de scène et de question sont séparés dans les premières couches. Chaque branche traite ses propres représentations avant une fusion tardive, permettant potentiellement de mieux préserver la spécificité de chaque modalité.
 
 \subsection{Axe 2 : Explicabilité via Graph Attention Networks (GAT)}
-\textbf{Problème :} Les couches de convolution de graphe (GCN) utilisées dans le tutoriel agrègent l'information des voisins de manière uniforme ou statique. Le modèle agit comme une "boîte noire", rendant impossible de savoir si la réponse est basée sur le bon objet ou sur un biais du dataset.
+\textbf{Motivation :} Les couches GNN standards agrègent l'information des voisins sans fournir d'information sur l'importance relative de chaque connexion. Pour mieux comprendre le raisonnement du modèle et identifier sur quels objets il se concentre, nous avons souhaité introduire un mécanisme d'attention visualisable.
 
-\textbf{Modification :} Nous avons remplacé les couches de convolution standard par des couches \textbf{GAT (Graph Attention Networks)}. Les GATs apprennent des poids d'attention dynamiques $\alpha_{ij}$ pour chaque arête.
+\textbf{Modification :} Nous avons remplacé les couches GNN par des couches \textbf{GAT (Graph Attention Networks)} qui apprennent des poids d'attention dynamiques $\alpha_{ij}$ pour chaque arête.
 \begin{equation}
     \alpha_{ij} = \frac{\exp(\text{LeakyReLU}(\vec{a}^T [W\vec{h}_i || W\vec{h}_j]))}{\sum_{k \in \mathcal{N}_i} \exp(\text{LeakyReLU}(\vec{a}^T [W\vec{h}_i || W\vec{h}_k]))}
 \end{equation}
@@ -102,39 +96,52 @@ Cette modification nous permet d'extraire les coefficients d'attention et de vis
 \section{Résultats et Analyse}
 
 \subsection{Protocole Expérimental}
-Nous comparons notre modèle modifié (Architecture Disjointe + GAT + Classification) à la Baseline modernisée. Les modèles sont entraînés sur le dataset CLEVR pré-traité.
+Tous les modèles sont entraînés sur \textbf{2000 questions CLEVR} (1600 train, 400 validation) pendant \textbf{20 epochs}.
 
-\subsection{Analyse Quantitative}
-\begin{itemize}
-    \item \textbf{Performance de Classification :} Notre modèle End-to-End atteint une précision de \placeholder{XX \%} sur le set de validation. \resultat{Ce résultat démontre que le modèle parvient à apprendre des représentations multimodales riches sans dépendre d'un moteur symbolique externe.}
-    \item \textbf{Impact de l'Architecture Disjointe :} Comparé à une fusion précoce, l'architecture à deux flux montre une convergence \placeholder{plus rapide / plus stable}.
-\end{itemize}
+\subsection{Résultats Comparatifs}
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|p{6cm}|}
+\hline
+\textbf{Configuration} & \textbf{Accuracy} & \textbf{Observations} \\
+\hline
+Baseline GIN Single-Stream & 99\% & Génération de programme + exécuteur symbolique. Entraînement stable. \\
+\hline
+Two-Stream GIN & 98.5\% & Deux GNN séparés ($\psi_1$ questions, $\psi_2$ scènes). Pas d'amélioration notable. \\
+\hline
+GAT + XAI & 97.5\% & Extraction des poids d'attention pour explicabilité. Baisse acceptable pour la visualisation. \\
+\hline
+Classification End-to-End & 44\% & Prédiction directe (30 classes) sans exécuteur. Forte tendance à l'overfitting. \\
+\hline
+\end{tabular}
+\caption{Comparaison des performances sur le set de validation (2000 questions, 20 epochs)}
+\end{table}
 
-\subsection{Analyse Qualitative (XAI)}
-L'analyse des poids d'attention du GAT offre des insights intéressants sur le raisonnement du modèle :
-\begin{itemize}
-    \item Pour les questions portant sur des attributs (ex: "Quelle est la couleur du cube ?"), nous observons une forte attention sur le nœud correspondant à l'objet cible dans \placeholder{Y \%} des cas.
-    \item \resultat{Les visualisations confirment que le mécanisme d'attention permet de filtrer les objets non pertinents de la scène, agissant comme un mécanisme de focalisation similaire à l'attention visuelle humaine.}
-\end{itemize}
+\subsection{Analyse}
 
-\subsubsection{Apprentissage Implicite des Relations Spatiales}
-Un résultat notable de notre analyse est que le GNN parvient à apprendre les relations spatiales \textbf{sans encodage symbolique explicite}. En visualisant les poids d'attention sur des questions spatiales (ex: "Y a-t-il un objet à gauche du cube ?"), nous observons que :
-\begin{itemize}
-    \item Le réseau concentre son attention sur les objets ayant des coordonnées $x$ pertinentes
-    \item Les couches de GAT apprennent à propager l'information spatiale de manière contextuelle
-    \item Les positions 3D brutes (96D + 3D) permettent au modèle de généraliser au-delà des relations pré-calculées
-\end{itemize}
+\textbf{Baseline (99\%) :} L'approche neuro-symbolique originale obtient d'excellentes performances car l'exécuteur symbolique effectue le raisonnement logique à partir du JSON de vérité terrain. Le modèle génère simplement une séquence syntaxiquement correcte.
 
-\textbf{Avantage :} Cette approche offre plus de flexibilité que des arêtes symboliques fixes ("left", "right"). Le GNN peut apprendre des notions spatiales contextuelles (ex: "proche" peut dépendre de la disposition globale de la scène).
+\textbf{Two-Stream (98.5\%) :} La séparation des GNN ($\psi_1$ pour questions, $\psi_2$ pour scènes) ne montre aucun avantage dans ce contexte où l'exécuteur fait le travail final. Les courbes d'entraînement sont identiques à la baseline.
 
-\textbf{Défi :} Le modèle doit apprendre à interpréter les coordonnées 3D, ce qui requiert plus de données d'entraînement qu'avec des relations symboliques pré-calculées.
+\textbf{GAT + XAI (97.5\%) :} Le remplacement par des couches GAT permet d'extraire les poids d'attention et de visualiser les nœuds importants. La baisse de 1.5 points est un compromis acceptable pour l'explicabilité. Les visualisations confirment que le modèle se focalise sur les objets pertinents de la scène.
+
+\textbf{Classification End-to-End (44\%) :} En supprimant l'exécuteur et en forçant le modèle à prédire directement parmi 30 classes de réponses, la performance chute drastiquement. Le modèle surapprentit et généralise mal.
+
+\textbf{Hypothèse critique :} Cette chute de performance (99\% → 44\%) suggère que la "généralisation" apparente du modèle original est biaisée par l'exécuteur symbolique. L'exécuteur a accès au JSON parfait et applique des règles déterministes, tandis que le réseau de neurones n'a qu'à générer des tokens syntaxiquement corrects. En mode classification pure, le GNN doit effectuer le raisonnement complet, révélant ses limites réelles.
+
+\subsection{Explicabilité (XAI)}
+Les poids d'attention extraits des GAT permettent de visualiser les nœuds sur lesquels le modèle se concentre. Les visualisations montrent que le modèle focalise son attention sur les objets pertinents de la scène, validant le mécanisme d'attention.
 
 \section{Conclusion}
-Ce projet nous a permis de comprendre les défis de la reproduction de papiers de recherche et l'importance de l'architecture logicielle dans les systèmes de Deep Learning. En modernisant le code et en introduisant des mécanismes d'attention et une classification end-to-end, nous avons transformé une simple démonstration de génération de programmes en un véritable système de VQA explicable. 
+Ce projet a permis de reproduire et d'analyser l'approche MGN sur un dataset réduit (2000 questions). La modernisation du code sur PyTorch 2.9.1 a constitué la baseline nécessaire aux expérimentations.
 
-\textbf{Contribution clé :} Notre analyse approfondie du système d'encodage spatial a révélé que le modèle MGN adopte une approche \textit{implicite} du raisonnement spatial : plutôt que d'encoder les relations (gauche/droite) comme des arêtes symboliques, il fournit directement les coordonnées 3D brutes $(x, y, z)$ dans les features des nœuds et laisse le GNN apprendre à les interpréter. Cette approche offre une plus grande flexibilité mais nécessite que le réseau apprenne à effectuer des comparaisons géométriques de manière contextuelle.
+Les modifications architecturales (Two-Stream, GAT) n'ont pas apporté d'amélioration significative en mode génération de programme : la baseline atteint 99\%, le Two-Stream 98.5\%, et le GAT 97.5\%. Ces résultats montrent que dans ce contexte neuro-symbolique, où l'exécuteur effectue le raisonnement logique final, la sophistication du GNN importe peu.
 
-Les résultats soulignent l'efficacité des GNNs pour structurer le raisonnement multimodal, tout en mettant en évidence l'importance de l'explicabilité dans ces modèles complexes. Les mécanismes d'attention du GAT permettent de vérifier que le modèle se concentre bien sur les objets pertinents, offrant ainsi une première étape vers des systèmes de VQA plus transparents et fiables.
+Le résultat le plus révélateur provient du mode classification end-to-end (44\% d'accuracy), qui force le modèle à raisonner sans l'aide de l'exécuteur symbolique. Cette chute de performance (99\% → 44\%) soulève des questions sur la nature réelle de la "généralisation" observée dans les approches neuro-symboliques. L'exécuteur, ayant accès au JSON parfait et appliquant des règles déterministes, effectue possiblement l'essentiel du raisonnement, masquant ainsi les limites du modèle neuronal.
+
+Les mécanismes d'attention du GAT ont néanmoins permis d'extraire des visualisations utiles pour l'explicabilité, confirmant que le modèle focalise son attention sur les objets pertinents. L'analyse a également révélé que le modèle apprend les relations spatiales implicitement via les coordonnées 3D brutes, sans nécessiter d'encodage symbolique explicite.
+
+Ces résultats illustrent les défis de l'évaluation des systèmes hybrides neuro-symboliques et suggèrent que des benchmarks sur des tâches purement neuronales (sans exécuteur) seraient nécessaires pour évaluer correctement les capacités de généralisation des GNNs en VQA.
 
 \begin{thebibliography}{9}
 

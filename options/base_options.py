@@ -21,7 +21,8 @@ class BaseOptions():
     """Base option class"""
 
     def __init__(self):
-        self.parser = argparse.ArgumentParser()
+        # 🔧 allow_abbrev=False pour éviter les conflits avec Jupyter (--f=kernel.json)
+        self.parser = argparse.ArgumentParser(allow_abbrev=False)
         self.parser.add_argument('--run_dir', default='_scratch/test_run', type=str, help='experiment directory')
         self.parser.add_argument('--dataset', default='clevr', type=str, help='select dataset, options: clevr, clevr-humans')
         # Dataloader
@@ -151,8 +152,8 @@ class BaseOptions():
         return srp
 
     def parse(self):
-        # Instantiate option
-        self.opt = self.parser.parse_args()
+        # Instantiate option - use parse_known_args() pour ignorer les arguments Jupyter
+        self.opt, unknown = self.parser.parse_known_args()
         self.run_identifier, self.run_timestamp = self.get_run_identifier(self.opt)
 
         val_qp = self.opt.clevr_val_question_path

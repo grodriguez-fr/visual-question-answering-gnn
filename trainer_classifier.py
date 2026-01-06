@@ -93,7 +93,11 @@ class ClassifierTrainer:
                 opt.visualize_training = 0
             else:
                 timestamp = time.strftime('%Y%m%d-%H%M%S')
-                log_dir = f'{opt.run_dir}/logs_classifier_{timestamp}'
+                # Construire un nom descriptif avec toutes les infos importantes
+                gnn_type = opt.gnn.upper()  # GAT ou GIN
+                stream_mode = "two-stream" if opt.two_stream_gnn else "single-stream"
+                log_name = f'logs_classifier_{gnn_type}_{stream_mode}_{timestamp}'
+                log_dir = f'{opt.run_dir}/{log_name}'
                 self.logger = Logger(log_dir)
                 print(f"📊 TensorBoard logs: {log_dir}")
         
@@ -157,8 +161,8 @@ class ClassifierTrainer:
                     self.stats['train_losses'].append(loss)
                     self.stats['train_accs'].append(batch_acc)
                     self.stats['train_accs_ts'].append(t)
-                    self.log_stats('training/loss', loss, t)
-                    self.log_stats('training/accuracy', batch_acc, t)
+                    self.log_stats('training batch loss', loss, t)
+                    self.log_stats('training batch accuracy', batch_acc, t)
                     pbar.set_postfix({'loss': f'{loss:.4f}', 'acc': f'{batch_acc:.2%}'})
                 
                 # Validation checkpoint
@@ -169,8 +173,8 @@ class ClassifierTrainer:
                     
                     pbar.write(f'| checkpoint at iter {t}/{self.num_iters}, val_acc: {val_acc:.2%}, val_loss: {val_loss:.4f}')
                     
-                    self.log_stats('validation/accuracy', val_acc, t)
-                    self.log_stats('validation/loss', val_loss, t)
+                    self.log_stats('validation accuracy', val_acc, t)
+                    self.log_stats('validation loss', val_loss, t)
                     
                     self.stats['val_accs'].append(val_acc)
                     self.stats['val_losses'].append(val_loss)

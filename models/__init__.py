@@ -88,10 +88,8 @@ def create_classifier_net(gnn, gembd_vec_dim, is_padding_pos, num_answer_classes
     """
     Creates a GNN + Classification Head model for end-to-end VQA.
     
-    This model bypasses the seq2seq decoder and executor, predicting answers directly.
-    
-    Architecture:
-        Graphs (Gs, Gt) -> GraphMatcher -> g_embd (96D) -> ClassificationHead -> answer
+    This model follows the paper architecture:
+        Questions (LSTM) + Graphs (GNN) -> Encoder -> ClassificationHead -> answer
     
     Args:
         gnn (str): GNN type ('gin' or 'gat')
@@ -126,9 +124,15 @@ def create_classifier_net(gnn, gembd_vec_dim, is_padding_pos, num_answer_classes
     gnn_matcher = GraphMatcher(psi_1, psi_2=psi_2, gembd_vec_dim=gembd_vec_dim,
                                aggregation='cat', two_stream=kwargs.get('two_stream_gnn', 0))
     
+    # 🔥 Classification Head input dimension = encoder hidden size
+    # Si bidirectionnel: hidden_size * 2, sinon juste hidden_size
+    encoder_hidden_size = kwargs.get('encoder_hidden_size', 256)
+    bidirectional = kwargs.get('bidirectional_encoder', 1)
+    classifier_input_dim = encoder_hidden_size * 2 if bidirectional else encoder_hidden_size
+    
     # Create Classification Head
     classifier_head = ClassificationHead(
-        input_dim=gembd_vec_dim,
+        input_dim=classifier_input_dim,  # 🔥 Maintenant basé sur l'encoder, pas le GNN
         hidden_dim=classifier_hidden_dim,
         num_classes=num_answer_classes,
         dropout=classifier_dropout
