@@ -87,7 +87,8 @@ class Trainer():
                 from utils.logger import Logger
                 import time
                 timestamp = time.strftime('%Y%m%d-%H%M%S')
-                log_dir = f'{opt.run_dir}/logs_{timestamp}'
+                # Inclure le nom de la tête dans le dossier de logs (executor pour seq2seq)
+                log_dir = f'{opt.run_dir}/logs_executor_{timestamp}'
                 self.logger = Logger(log_dir)
                 print(f"📊 TensorBoard logs: {log_dir}")
 

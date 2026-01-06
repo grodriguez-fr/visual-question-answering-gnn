@@ -469,129 +469,334 @@ def visualize_sample(model, val_loader, val_dataset, opt, sample_idx=0):
     print("=" * 80 + "\n")
 
 
-def visualize_programs_and_predictions(model, val_loader, val_dataset, opt, num_examples=3):
-    """
-    Visualise les programmes générés par le modèle avec les images et les questions.
-    
-    Args:
-        model: Le modèle MGN
-        val_loader: DataLoader de validation
-        val_dataset: Dataset de validation
-        opt: Options du modèle
-        num_examples: Nombre d'exemples à afficher
-    """
+def visualize_programs_and_predictions(model, val_loader, val_dataset, opt, num_examples=3, seed=0):
+    """Visualise question, graphes, image et prédiction pour toutes les configs (GAT/GIN, two-stream, classification ou seq2seq)."""
     import random
-    import utils.utils as utils
-    
-    print("🎯 PROGRAMME GÉNÉRÉ: Extraction directe depuis le modèle\n")
-    print("=" * 80)
-    
-    # Dossier de sortie dynamique
-    OUTPUT_DIR = f'clevr_preprocessed_{opt.max_train_samples + opt.max_val_samples}'
-    
-    # Charger les questions de validation
-    val_questions_path = os.path.join(OUTPUT_DIR, 'temp', f'val_questions_{opt.max_val_samples}.json')
+
+    classification_mode = bool(getattr(opt, 'classification_mode', False)) or hasattr(model, 'classifier')
+    gat_mode = 'gat' in str(getattr(opt, 'gnn', '')).lower()
+    two_stream = bool(getattr(opt, 'two_stream_gnn', False))
+    rng = random.Random(seed)
+
+    # Charger questions et scènes
+    output_dir = f"clevr_preprocessed_{opt.max_train_samples + opt.max_val_samples}"
+    val_questions_path = os.path.join(output_dir, 'temp', f"val_questions_{opt.max_val_samples}.json")
     with open(val_questions_path, 'r') as f:
-        val_questions = json.load(f)['questions']
-    
-    # Choisir quelques échantillons aléatoires
-    sample_indices_to_show = random.sample(range(min(len(val_questions), len(val_dataset))), num_examples)
-    
-    # Charger le vocabulaire pour décoder les tokens
+        val_questions = json.load(f).get('questions', [])
+
+    with open(opt.clevr_val_scene_path, 'r') as f:
+        scenes_data = json.load(f).get('scenes', [])
+
     vocab = val_dataset.vocab
-    idx2word = vocab.get('program_idx_to_token', {})
-    if not idx2word:
-        # Fallback: utiliser le vocabulaire answer
-        idx2word = vocab.get('answer_idx_to_token', {})
-    
-    # Mettre le modèle en mode évaluation
-    model.seq2seq.eval()
-    
-    print(f"🔄 Extraction des programmes de {num_examples} échantillons...\n")
-    
-    with torch.no_grad():
-        # Parcourir tous les batchs et collecter les données
-        all_programs = {}
-        batch_counter = 0
-        
-        for batch in val_loader:
-            # Extraire les données du batch (format standard du dataloader)
-            questions, programs, answers, image_idxs, g_data = batch
-            
-            # Générer les programmes pour TOUT le batch
-            model.set_input(questions, None, g_data)
-            programs_batch = model.parse()  # Utilise parse() qui gère tout
-            
-            # Pour chaque position dans le batch
-            batch_size = questions.shape[0]
-            for pos_in_batch in range(batch_size):
-                # Récupérer l'index global de cet échantillon
-                if isinstance(image_idxs, torch.Tensor):
-                    sample_idx = int(image_idxs[pos_in_batch].item())
+    idx2answer = vocab.get('answer_idx_to_token', {})
+    idx2program = vocab.get('program_idx_to_token', idx2answer)
+
+    if not val_questions:
+        print("⚠️ Aucun échantillon de validation chargé, rien à afficher.")
+        return
+
+    max_available = min(len(val_questions), len(val_dataset))
+    if max_available == 0:
+        print("⚠️ Dataset de validation vide, rien à afficher.")
+        return
+
+    num_to_show = min(num_examples, max_available)
+    sample_indices = rng.sample(list(range(max_available)), num_to_show)
+    sample_targets = set(sample_indices)
+
+    # Executor uniquement pour le mode programme
+    executor = None
+    if not classification_mode:
+        try:
+            from executors import get_executor
+            executor = get_executor(opt)
+        except Exception as e:
+            print(f"⚠️ Executor indisponible, les réponses seront non exécutées ({str(e)[:80]})")
+
+    # Sélection des GNN pour visualiser l'attention/structure
+    def _get_gnn_heads():
+        if classification_mode:
+            gnn_container = getattr(model, 'gnn', None)
+        else:
+            gnn_container = getattr(getattr(model, 'seq2seq', None), 'gnn', None)
+        if gnn_container is None:
+            return None, None
+        q_gnn = getattr(gnn_container, 'psi_1', None)
+        t_gnn = getattr(gnn_container, 'psi_2', None) if two_stream and getattr(gnn_container, 'psi_2', None) else getattr(gnn_container, 'psi_1', None)
+        return q_gnn, t_gnn
+
+    question_gnn, scene_gnn = _get_gnn_heads()
+
+    print("\n" + "=" * 80)
+    print(f"🎯 Visualisation XAI ({'classification' if classification_mode else 'programme'}) | GNN: {opt.gnn} | Two-stream: {two_stream}")
+    print("=" * 80)
+
+    shown = 0
+    global_idx = 0
+
+    for batch_id, batch in enumerate(val_loader):
+        if shown >= num_to_show:
+            break
+
+        questions, programs, answers, image_idxs, g_data = batch
+        BATCH_S, BATCH_T = g_data
+        batch_size = questions.shape[0]
+
+        # Prédictions (classification ou génération de programme)
+        if classification_mode:
+            model.eval()
+            model.set_input(x=questions, g_data=g_data, answers=answers)
+            with torch.no_grad():
+                logits = model.forward()
+                probs = torch.softmax(logits, dim=-1)
+                pred_indices = torch.argmax(probs, dim=-1)
+        else:
+            model.seq2seq.eval()
+            with torch.no_grad():
+                model.set_input(questions, programs, g_data)
+                generated_programs = model.parse()
+
+        for pos_in_batch in range(batch_size):
+            dataset_idx = batch_id * val_loader.batch_size + pos_in_batch
+            global_idx = dataset_idx
+            if dataset_idx not in sample_targets:
+                continue
+
+            shown += 1
+            question_data = val_questions[dataset_idx]
+            question_text = question_data.get('question', '').strip()
+            true_answer = question_data.get('answer', '')
+            image_filename = question_data.get('image_filename', '')
+            image_index = int(question_data.get('image_index', image_idxs[pos_in_batch].item() if isinstance(image_idxs, torch.Tensor) else image_idxs[pos_in_batch]))
+
+            # Extraire sous-graphes pour l'échantillon
+            mask_s = BATCH_S.batch == pos_in_batch
+            mask_t = BATCH_T.batch == pos_in_batch
+
+            x_question = BATCH_S.x[mask_s]
+            x_scene = BATCH_T.x[mask_t]
+
+            edge_mask_s = mask_s[BATCH_S.edge_index[0]] & mask_s[BATCH_S.edge_index[1]]
+            edge_index_s = BATCH_S.edge_index[:, edge_mask_s]
+
+            edge_mask_t = mask_t[BATCH_T.edge_index[0]] & mask_t[BATCH_T.edge_index[1]]
+            edge_index_t = BATCH_T.edge_index[:, edge_mask_t]
+
+            node_mapping_s = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(torch.where(mask_s)[0])}
+            node_mapping_t = {old_idx.item(): new_idx for new_idx, old_idx in enumerate(torch.where(mask_t)[0])}
+
+            edge_index_s_remapped = torch.tensor([
+                [node_mapping_s[src.item()] for src in edge_index_s[0]],
+                [node_mapping_s[tgt.item()] for tgt in edge_index_s[1]]
+            ], dtype=torch.long)
+
+            edge_index_t_remapped = torch.tensor([
+                [node_mapping_t[src.item()] for src in edge_index_t[0]],
+                [node_mapping_t[tgt.item()] for tgt in edge_index_t[1]]
+            ], dtype=torch.long)
+
+            # Labels de question
+            question_tokens = questions[pos_in_batch].cpu().numpy()
+            question_words_all = []
+            for token_idx in question_tokens:
+                if token_idx in vocab.get('question_idx_to_token', {}):
+                    word = vocab['question_idx_to_token'][token_idx]
+                    if word == '<END>':
+                        break
+                    if word not in ['<NULL>', '<START>']:
+                        question_words_all.append(word)
+
+            question_labels = []
+            if len(question_words_all) <= x_question.shape[0]:
+                for i in range(x_question.shape[0]):
+                    question_labels.append(question_words_all[i] if i < len(question_words_all) else f"syntrel_{i}")
+            else:
+                words_per_node = len(question_words_all) / max(1, x_question.shape[0])
+                for i in range(x_question.shape[0]):
+                    start_idx = int(i * words_per_node)
+                    end_idx = int((i + 1) * words_per_node)
+                    node_words = question_words_all[start_idx:end_idx]
+                    question_labels.append(' '.join(node_words) if node_words else f"Q{i}")
+
+            # Récupérer la scène complète
+            scene = next((s for s in scenes_data if s.get('image_index') == image_index), None)
+
+            # Labels et relations de scène
+            scene_objects = []
+            scene_objects_full = []
+            if scene:
+                for obj in scene.get('objects', []):
+                    size = obj.get('size', '')
+                    color = obj.get('color', '')
+                    shape = obj.get('shape', '')
+                    material = obj.get('material', '')
+                    scene_objects.append(f"{color[:3]}{shape[:3]}")
+                    scene_objects_full.append(f"{size} {material} {color} {shape}")
+            else:
+                scene_objects = [f"O{i}" for i in range(x_scene.shape[0])]
+                scene_objects_full = scene_objects
+
+            temp_out_connections = defaultdict(set)
+            for src, tgt in edge_index_t_remapped.t().tolist():
+                temp_out_connections[src].add(tgt)
+            object_nodes = [i for i in range(x_scene.shape[0]) if len(temp_out_connections[i]) > 0]
+
+            obj_positions = {}
+            if scene and scene.get('objects'):
+                for obj_idx, obj in enumerate(scene['objects']):
+                    if obj_idx < len(object_nodes):
+                        obj_positions[object_nodes[obj_idx]] = obj.get('3d_coords', [0, 0, 0])
+
+            edge_relations = {}
+            for src, tgt in edge_index_t_remapped.t().tolist():
+                if src in object_nodes and tgt in object_nodes:
+                    if src in obj_positions and tgt in obj_positions:
+                        edge_relations[(src, tgt)] = calculate_spatial_relation(obj_positions[src], obj_positions[tgt])
+                    else:
+                        edge_relations[(src, tgt)] = "spatial"
+                elif src in object_nodes and tgt not in object_nodes:
+                    attr_types = ['hasSize', 'hasColor', 'hasMaterial', 'hasShape']
+                    obj_attrs = [t for s, t in edge_index_t_remapped.t().tolist() if s == src and t not in object_nodes]
+                    attr_position = obj_attrs.index(tgt) if tgt in obj_attrs else 0
+                    edge_relations[(src, tgt)] = attr_types[attr_position] if attr_position < len(attr_types) else "hasAttr"
                 else:
-                    sample_idx = image_idxs[pos_in_batch] if hasattr(image_idxs, '__getitem__') else (batch_counter * opt.batch_size + pos_in_batch)
-                
-                # Décoder le programme pour cet échantillon
-                program_tokens = programs_batch[pos_in_batch].cpu().numpy()
+                    edge_relations[(src, tgt)] = "other"
+
+            node_in_connections = defaultdict(set)
+            for src, tgt in edge_index_t_remapped.t().tolist():
+                node_in_connections[tgt].add(src)
+
+            scene_labels = []
+            attributes_names = ['size', 'color', 'material', 'shape']
+            for i in range(x_scene.shape[0]):
+                if i in object_nodes:
+                    obj_idx = object_nodes.index(i)
+                    scene_labels.append(f"OBJ{obj_idx+1}\n{scene_objects[obj_idx]}" if obj_idx < len(scene_objects) else f"OBJ{obj_idx+1}")
+                else:
+                    sources = list(node_in_connections[i])
+                    if sources and sources[0] in object_nodes:
+                        source_obj_idx = object_nodes.index(sources[0])
+                        attr_count = sum(1 for j in range(i) if j not in object_nodes and sources[0] in node_in_connections[j])
+                        if source_obj_idx < len(scene_objects_full):
+                            parts = scene_objects_full[source_obj_idx].split()
+                            if attr_count < len(parts) and attr_count < len(attributes_names):
+                                scene_labels.append(f"{attributes_names[attr_count]}\n{parts[attr_count]}")
+                            else:
+                                scene_labels.append(f"attr{i}")
+                        else:
+                            scene_labels.append(f"attr{i}")
+                    else:
+                        scene_labels.append(f"N{i}")
+
+            # Affichage textuel
+            print("\n" + "-" * 80)
+            print(f"📌 Exemple {shown}/{num_to_show} | idx dataset: {dataset_idx}")
+            print(f"❓ Question: {question_text}")
+            print(f"✅ Réponse attendue: {true_answer}")
+
+            # Graphe question
+            if gat_mode and question_gnn is not None:
+                visualize_gat_attention(
+                    gat_model=question_gnn,
+                    x=x_question,
+                    edge_index=edge_index_s_remapped,
+                    layer_idx=0,
+                    head_idx=0,
+                    node_labels=question_labels,
+                    edge_relations=None,
+                    vocab=vocab,
+                    title="GAT - Question",
+                    threshold=0.0,
+                    figsize=(14, 12)
+                )
+            else:
+                visualize_graph_structure(
+                    x=x_question,
+                    edge_index=edge_index_s_remapped,
+                    node_labels=question_labels,
+                    edge_relations=None,
+                    title="Structure du graphe - Question",
+                    figsize=(14, 12)
+                )
+
+            # Image de scène
+            if 'val' in image_filename.lower():
+                image_path = os.path.join('data', 'CLEVR_v1.0', 'images', 'val', image_filename)
+            else:
+                image_path = os.path.join('data', 'CLEVR_v1.0', 'images', 'train', image_filename)
+
+            try:
+                img = Image.open(image_path)
+                plt.figure(figsize=(10, 7))
+                plt.imshow(img)
+                plt.axis('off')
+                plt.title(f"Scène: {image_filename}\n{len(scene_objects)} objets", fontsize=12, pad=15)
+                plt.tight_layout()
+                plt.show()
+            except FileNotFoundError:
+                print(f"⚠️ Image non trouvée: {image_path}")
+
+            # Graphe scène
+            if gat_mode and scene_gnn is not None:
+                visualize_gat_attention(
+                    gat_model=scene_gnn,
+                    x=x_scene,
+                    edge_index=edge_index_t_remapped,
+                    layer_idx=0,
+                    head_idx=0,
+                    node_labels=scene_labels,
+                    edge_relations=edge_relations,
+                    vocab=vocab,
+                    title="GAT - Scène",
+                    threshold=0.0,
+                    figsize=(16, 14)
+                )
+            else:
+                visualize_graph_structure(
+                    x=x_scene,
+                    edge_index=edge_index_t_remapped,
+                    node_labels=scene_labels,
+                    edge_relations=edge_relations,
+                    title="Structure du graphe - Scène",
+                    figsize=(16, 14)
+                )
+
+            # Programme ou prédiction
+            if classification_mode:
+                pred_idx = int(pred_indices[pos_in_batch].item())
+                predicted_answer = idx2answer.get(pred_idx, str(pred_idx))
+                confidence = probs[pos_in_batch, pred_idx].item() if 'probs' in locals() else 0.0
+                status = "✅" if predicted_answer.lower() == true_answer.lower() else "❌"
+                print(f"🤖 Prédiction directe: {predicted_answer} (confiance: {confidence:.2%}) {status}")
+            else:
+                program_tokens = generated_programs[pos_in_batch].cpu().numpy()
                 program_words = []
                 for token in program_tokens:
                     token_int = int(token)
-                    if token_int in idx2word:
-                        word = idx2word[token_int]
+                    if token_int in idx2program:
+                        word = idx2program[token_int]
                         if word == '<END>':
                             break
                         if word not in ['<NULL>', '<START>']:
                             program_words.append(word)
-                
-                program_text = " ".join(program_words) if program_words else "[EMPTY]"
-                all_programs[sample_idx] = program_text
-            
-            batch_counter += 1
-    
-    # Afficher les résultats
-    for example_num, sample_idx in enumerate(sample_indices_to_show):
-        print(f"📌 Exemple {example_num+1}/{num_examples}")
-        print("-" * 80)
-        
-        # Récupérer la question du JSON
-        question_data = val_questions[sample_idx]
-        question_text = question_data['question']
-        true_answer = question_data['answer']
-        image_filename = question_data['image_filename']
-        
-        print(f"❓ Question: {question_text}")
-        print(f"✅ Vraie réponse: {true_answer}")
-        
-        # Afficher le programme généré
-        program_text = all_programs.get(sample_idx, "[PROGRAMME NON GÉNÉRÉ]")
-        print(f"🤖 PROGRAMME GÉNÉRÉ: {program_text}")
-        
-        # Afficher l'image
-        if 'train' in image_filename.lower():
-            image_path = os.path.join('data', 'CLEVR_v1.0', 'images', 'train', image_filename)
-        elif 'val' in image_filename.lower():
-            image_path = os.path.join('data', 'CLEVR_v1.0', 'images', 'val', image_filename)
-        else:
-            image_path = os.path.join('data', 'CLEVR_v1.0', 'images', 'train', image_filename)
-        
-        try:
-            img = Image.open(image_path)
-            plt.figure(figsize=(11, 7))
-            plt.imshow(img)
-            plt.axis('off')
-            
-            title = f"❓ {question_text}\n✅ Réponse: {true_answer}\n🤖 Programme: {program_text}"
-            plt.title(title, fontsize=10, pad=20, wrap=True)
-            plt.tight_layout()
-            plt.show()
-            
-        except FileNotFoundError:
-            print(f"⚠️ Image non trouvée: {image_path}\n")
-        
-        print()
-    
-    print("=" * 80)
-    print(f"✅ Extraction des programmes terminée!")
+
+                program_text = " ".join(program_words) if program_words else "[PROGRAMME VIDE]"
+                answer_predicted = "N/A"
+                if executor and scene:
+                    try:
+                        answer_predicted = executor.run(program_words, scene, 'program')
+                    except Exception as e:
+                        answer_predicted = f"Erreur exec: {str(e)[:60]}"
+
+                status = "✅" if str(answer_predicted).lower() == true_answer.lower() else "❌"
+                print(f"🤖 Programme généré: {program_text}")
+                print(f"🏁 Réponse exécutée: {answer_predicted} {status}")
+
+            if shown >= num_to_show:
+                break
+
+    print("\n" + "=" * 80)
+    print("✅ Visualisation terminée")
 
 
 def visualize_sample_classifier(model, val_loader, val_dataset, opt, sample_idx=0):
