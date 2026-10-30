@@ -8,7 +8,7 @@ Ce dépôt est **basé sur** et **dérive du code** du projet original **MGN** :
 
 Tout le crédit pour l’implémentation originale revient aux auteurs/mainteneurs du dépôt ci-dessus.
 
-> Remarque : ce dépôt contient des adaptations/expérimentations dans le cadre de ce workspace. Pour la référence officielle, la documentation et la licence, se référer au dépôt source.
+> Remarque : ce dépôt contient des adaptations/expérimentations dans le cadre de ce workspace. Pour la référence officielle et la documentation, se référer au dépôt source. Le code de MGN est sous licence MIT, reproduite dans [LICENSE-MGN](LICENSE-MGN).
 
 ## Configuration du Dataset CLEVR
 
